@@ -36,6 +36,8 @@ export class PendulumInstance extends Instance {
             return res.sendStatus(StatusCodes.PRECONDITION_REQUIRED);
         }
 
+        console.log(state.status);
+
         return res.json(state);
     }
 
@@ -43,7 +45,7 @@ export class PendulumInstance extends Instance {
         this.simulation.start(req.body, this.neighborUrls);
 
         // eslint-disable-next-line no-console
-        console.log(`[${new Date().toISOString()}] Simulation started on ${this.port}`);
+        console.log(`[${new Date().toISOString()}] Simulation started`);
         return res.sendStatus(StatusCodes.CREATED);
     }
 
@@ -51,7 +53,7 @@ export class PendulumInstance extends Instance {
         this.simulation.pause();
 
         // eslint-disable-next-line no-console
-        console.log(`[${new Date().toISOString()}] Simulation paused on ${this.port}`);
+        console.log(`[${new Date().toISOString()}] Simulation paused`);
         return res.sendStatus(StatusCodes.OK);
     }
 
@@ -59,7 +61,7 @@ export class PendulumInstance extends Instance {
         this.simulation.reset();
 
         // eslint-disable-next-line no-console
-        console.log(`[${new Date().toISOString()}] Simulation reset on ${this.port}`);
+        console.log(`[${new Date().toISOString()}] Simulation reset`);
         return res.json(this.simulation.state);
     }
 
@@ -72,7 +74,7 @@ export class PendulumInstance extends Instance {
             }, PAUSE_AFTER_COLLISION);
 
             // eslint-disable-next-line no-console
-            console.log(`[${new Date().toISOString()}] Collision reported on ${this.port}`);
+            console.log(`[${new Date().toISOString()}] Collision reported`);
         }
     }
 
@@ -83,7 +85,7 @@ export class PendulumInstance extends Instance {
             this.restartMessages = null;
 
             // eslint-disable-next-line no-console
-            console.log(`[${new Date().toISOString()}] Simulation restarted on ${this.port}`);
+            console.log(`[${new Date().toISOString()}] Simulation restarted`);
         }
     }
 
@@ -91,7 +93,7 @@ export class PendulumInstance extends Instance {
         const pendulumRequests = this.neighborUrls.map(neighborUrl => got.get(`${neighborUrl}/pendulum`).json().catch(() => null));
         const pendulums = await Promise.all(pendulumRequests);
 
-        return pendulums.filter(p => p);
+        return pendulums.filter(pendulum => pendulum && pendulum.bobPosition);
     }
 
     onCollision() {

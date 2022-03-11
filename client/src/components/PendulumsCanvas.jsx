@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useReducer, useState } from "react";
 import { getMouseCoords, getMouseDelta } from "utils";
 import { Canvas } from "components/Canvas";
 import { SERVER_URL, PENDULUM_ENDPOINT, REFRESH_PERIOD } from "constants";
@@ -14,17 +14,49 @@ const BUTTOM_BOTTOM_MARGIN = 15;
 const PENDULUM_COUNT = 5;
 const PENDULUM_INDEXES = Array.from({ length: PENDULUM_COUNT }, (_, i) => i + 1);
 
-export const PendulumsCanvas = ({ width, height, ...canvasProps}) => {
-    const [state, setState] = useState(SimulationStates.STOPPED);
-    const [interactionsEnabed, setInteractionsEnabed] = useState(true);
-    const [poll, setPoll] = useState(false);
+function reducer(state, action) {
+    switch(action.type) {
+        case "pendulumUpdated":
+            const servers = {
+                ...state.servers,
+                [action.server]: action.newState,
+            };
 
+            let newState = state.state;
+            const serverStates = Object.values(servers);
+            if (new Set(serverStates).size === 1) {
+                newState = serverStates[0];
+            }
+
+            return {
+                state: newState,
+                interactionsEnabed: newState === SimulationStates.STOPPED,
+                servers,
+            };
+        case "setAllStates":
+            return {
+                state: action.newState,
+                interactionsEnabed: action.newState === SimulationStates.STOPPED,
+                servers: {
+                    ...state.servers,
+                    ...Object.keys(state.servers).reduce((pStates, server) => {
+                        pStates[server] = action.newState;
+
+                        return pStates;
+                    }, {}),
+                }
+            }
+        default:
+            return state;
+    }
+}
+
+export const PendulumsCanvas = ({ width, height, ...canvasProps}) => {
     const [anchor] = useState(new Line(
         new Circle(15, 15),
         new Circle(width - 15, 15),
         4
     ));
-
     const [pendulums] = useState(PENDULUM_INDEXES.map(i =>
         ({
             shape: new Pendulum(
@@ -35,25 +67,26 @@ export const PendulumsCanvas = ({ width, height, ...canvasProps}) => {
             server: `${SERVER_URL}:300${i}`,
         })
     ));
-
-    const [startButton] = useState(StartButton(1 * width / 4.5, height - BUTTOM_BOTTOM_MARGIN, pendulums, setState));
-    const [pauseButton] = useState(PauseButton(2 * width / 4.5, height - BUTTOM_BOTTOM_MARGIN, pendulums, setState));
-    const [resetButton] = useState(ResetButton(3 * width / 4.5, height - BUTTOM_BOTTOM_MARGIN, pendulums, setState));
+    const [startButton] = useState(StartButton(1 * width / 4.5, height - BUTTOM_BOTTOM_MARGIN, pendulums, newState => dispatch({ type: "setAllStates", newState })));
+    const [pauseButton] = useState(PauseButton(2 * width / 4.5, height - BUTTOM_BOTTOM_MARGIN, pendulums, newState => dispatch({ type: "setAllStates", newState })));
+    const [resetButton] = useState(ResetButton(3 * width / 4.5, height - BUTTOM_BOTTOM_MARGIN, pendulums, newState => dispatch({ type: "setAllStates", newState })));
     const [windCompass] = useState(WindCompass(width - 75, height - 75, pendulums));
 
-    useEffect(() => {
-        setInteractionsEnabed(state === SimulationStates.STOPPED);
-    }, [state, setInteractionsEnabed]);
+    const [pendulumStates, dispatch] = useReducer(reducer, {
+        state: SimulationStates.STOPPED,
+        interactionsEnabed: true,
+        servers: pendulums.reduce((pStates, pendulum) => {
+            pStates[pendulum.server] = SimulationStates.STOPPED;
+
+            return pStates;
+        }, {})
+    });
 
     useEffect(() => {
-        setPoll(state !== SimulationStates.STOPPED);
-    }, [state, setPoll]);
-
-    useEffect(() => {
-        startButton.disabled = [SimulationStates.STARTED, SimulationStates.RESTARTING].includes(state);
-        pauseButton.disabled = state !== SimulationStates.STARTED;
-        resetButton.disabled = state === SimulationStates.STOPPED;
-    }, [state, setState, startButton, pauseButton, resetButton])
+        startButton.disabled = [SimulationStates.STARTED, SimulationStates.RESTARTING].includes(pendulumStates.state);
+        pauseButton.disabled = pendulumStates.state !== SimulationStates.STARTED;
+        resetButton.disabled = pendulumStates.state === SimulationStates.STOPPED;
+    }, [pendulumStates.state, startButton, pauseButton, resetButton])
 
     const draw = useCallback(ctx => {
         anchor.render(ctx);
@@ -67,7 +100,7 @@ export const PendulumsCanvas = ({ width, height, ...canvasProps}) => {
     const mouseDown = useCallback(e => {
         const position = getMouseCoords(e);
 
-        if (interactionsEnabed) {
+        if (pendulumStates.interactionsEnabed) {
             pendulums.forEach(pendulum => pendulum.shape.mouseDown(position));
             windCompass.mouseDown(position);
         }
@@ -76,13 +109,13 @@ export const PendulumsCanvas = ({ width, height, ...canvasProps}) => {
         pauseButton.mouseDown(position);
         resetButton.mouseDown(position);
 
-    }, [interactionsEnabed, pendulums, startButton, pauseButton, resetButton, windCompass]);
+    }, [pendulumStates.interactionsEnabed, pendulums, startButton, pauseButton, resetButton, windCompass]);
 
     const mouseMove = useCallback(e => {
         const position = getMouseCoords(e);
         const delta = getMouseDelta(e);
 
-        if (interactionsEnabed) {
+        if (pendulumStates.interactionsEnabed) {
             pendulums.forEach(pendulum => pendulum.shape.mouseMove(position, delta));
             windCompass.mouseMove(position, delta);
         }
@@ -90,12 +123,12 @@ export const PendulumsCanvas = ({ width, height, ...canvasProps}) => {
         startButton.mouseMove(position, delta);
         pauseButton.mouseMove(position, delta);
         resetButton.mouseMove(position, delta);
-    }, [interactionsEnabed, pendulums, startButton, pauseButton, resetButton, windCompass]);
+    }, [pendulumStates.interactionsEnabed, pendulums, startButton, pauseButton, resetButton, windCompass]);
 
     const mouseUp = useCallback(e => {
         const position = getMouseCoords(e);
 
-        if (interactionsEnabed) {
+        if (pendulumStates.interactionsEnabed) {
             pendulums.forEach(pendulum => pendulum.shape.mouseUp(position));
             windCompass.mouseUp(position);
         }
@@ -103,7 +136,9 @@ export const PendulumsCanvas = ({ width, height, ...canvasProps}) => {
         startButton.mouseUp(position);
         pauseButton.mouseUp(position);
         resetButton.mouseUp(position);
-    }, [interactionsEnabed, pendulums, startButton, pauseButton, resetButton, windCompass]);
+    }, [pendulumStates.interactionsEnabed, pendulums, startButton, pauseButton, resetButton, windCompass]);
+
+    console.log("render");
 
     return (
         <>
@@ -113,11 +148,11 @@ export const PendulumsCanvas = ({ width, height, ...canvasProps}) => {
                     shape={shape}
                     url={`${server}/${PENDULUM_ENDPOINT}`}
                     pollingPeriod={REFRESH_PERIOD}
-                    poll={poll}
+                    poll={pendulumStates.servers[server] !== SimulationStates.STOPPED}
                     onPoll={json => {
                         shape.bob.x = json.bobPosition.x;
                         shape.bob.y = json.bobPosition.y;
-                        setState(json.status);
+                        dispatch({ type: "pendulumUpdated", server, newState: json.status });
                     }}
                 />
             ))}
